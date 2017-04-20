@@ -1,3 +1,5 @@
+# coding:utf-8
+
 import re
 import urlparse
 import urllib2
@@ -8,14 +10,14 @@ import Queue
 
 
 def link_crawler(seed_url, link_regex=None, delay=5, max_depth=-1, max_urls=-1, headers=None, user_agent='wswp',
-                 proxy=None, num_retries=1):
+                 proxy=None, num_retries=1, scrape_callback=None):
     """Crawl from the given seed URL following links matched by link_regex
     """
-    # the queue of URL's that still need to be crawled
+    # 记录被爬过的url队列
     crawl_queue = Queue.deque([seed_url])
-    # the URL's that have been seen and at what depth
+    # 记录url被看过且记录深度
     seen = {seed_url: 0}
-    # track how many URL's have been downloaded
+    # 记录下来了多少个url
     num_urls = 0
     rp = get_robots(seed_url)
     throttle = Throttle(delay)
@@ -25,30 +27,31 @@ def link_crawler(seed_url, link_regex=None, delay=5, max_depth=-1, max_urls=-1, 
 
     while crawl_queue:
         url = crawl_queue.pop()
-        # check url passes robots.txt restrictions
+        # 检查网址通过robots.txt限制
         if rp.can_fetch(user_agent, url):
             throttle.wait(url)
             html = download(url, headers, proxy=proxy, num_retries=num_retries)
             links = []
-
+            if scrape_callback:
+                links.extend(scrape_callback(url, html) or [])
             depth = seen[url]
             if depth != max_depth:
-                # can still crawl further
+                # 不达到最大深度，可进行进一步爬取
                 if link_regex:
-                    # filter for links matching our regular expression
+                    # 过滤器，用于与我们的正则表达式匹配的链接
                     links.extend(link for link in get_links(html) if re.match(link_regex, link))
 
                 for link in links:
                     link = normalize(seed_url, link)
-                    # check whether already crawled this link
+                    # 检查是否已抓取此链接
                     if link not in seen:
                         seen[link] = depth + 1
-                        # check link is within same domain
+                        # 校验当前url是否是同一域名
                         if same_domain(seed_url, link):
-                            # success! add this new link to queue
+                            # 成功，添加链接到队列中
                             crawl_queue.append(link)
 
-            # check whether have reached downloaded maximum
+            # 检查是否已达到下载最大值
             num_urls += 1
             if num_urls == max_urls:
                 break
@@ -61,9 +64,9 @@ class Throttle:
     """
 
     def __init__(self, delay):
-        # amount of delay between downloads for each domain
+        # 每个域的下载之间的延迟量
         self.delay = delay
-        # timestamp of when a domain was last accessed
+        # 何时上次访问域的时间戳
         self.domains = {}
 
     def wait(self, url):
